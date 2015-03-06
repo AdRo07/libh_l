@@ -373,6 +373,15 @@ void AudioPolicyManagerBase::setPhoneState(int state)
     // change routing is necessary
     setOutputDevice(mPrimaryOutput, newDevice, force, delayMs);
 
+    //update device for all non-primary outputs
+    for (size_t i = 0; i < mOutputs.size(); i++) {
+        audio_io_handle_t output = mOutputs.keyAt(i);
+        if (output != mPrimaryOutput) {
+            newDevice = getNewDevice(output, false /*fromCache*/);
+            setOutputDevice(output, newDevice, (newDevice != AUDIO_DEVICE_NONE));
+        }
+    }
+
     // if entering in call state, handle special case of active streams
     // pertaining to sonification strategy see handleIncallSonification()
     if (isStateInCall(state)) {
@@ -1126,7 +1135,10 @@ status_t AudioPolicyManagerBase::setStreamVolumeIndex(AudioSystem::stream_type s
     for (size_t i = 0; i < mOutputs.size(); i++) {
         audio_devices_t curDevice =
                 getDeviceForVolume(mOutputs.valueAt(i)->device());
-        if ((device == AUDIO_DEVICE_OUT_DEFAULT) || (device == curDevice)) {
+#ifndef ICS_AUDIO_BLOB
+        if ((device == AUDIO_DEVICE_OUT_DEFAULT) || (device == curDevice))
+#endif
+		{
             status_t volStatus = checkAndSetVolume(stream, index, mOutputs.keyAt(i), curDevice);
             if (volStatus != NO_ERROR) {
                 status = volStatus;
@@ -1143,6 +1155,7 @@ status_t AudioPolicyManagerBase::getStreamVolumeIndex(AudioSystem::stream_type s
     if (index == NULL) {
         return BAD_VALUE;
     }
+#ifndef ICS_AUDIO_BLOB
     if (!audio_is_output_device(device)) {
         return BAD_VALUE;
     }
@@ -1154,6 +1167,9 @@ status_t AudioPolicyManagerBase::getStreamVolumeIndex(AudioSystem::stream_type s
     device = getDeviceForVolume(device);
 
     *index =  mStreams[stream].getVolumeIndex(device);
+#else
+    *index =  mStreams[stream].mIndexCur.valueAt(0);
+#endif
     ALOGV("getStreamVolumeIndex() stream %d device %08x index %d", stream, device, *index);
     return NO_ERROR;
 }
@@ -2314,7 +2330,7 @@ void AudioPolicyManagerBase::checkOutputForStrategy(routing_strategy strategy)
 {
     audio_devices_t oldDevice = getDeviceForStrategy(strategy, true /*fromCache*/);
     audio_devices_t newDevice = getDeviceForStrategy(strategy, false /*fromCache*/);
-    SortedVector<audio_io_handle_t> srcOutputs = getOutputsForDevice(oldDevice, mPreviousOutputs);
+    SortedVector<audio_io_handle_t> srcOutputs = getOutputsForDevice(oldDevice, mOutputs);
     SortedVector<audio_io_handle_t> dstOutputs = getOutputsForDevice(newDevice, mOutputs);
 
     if (!vectorsEqual(srcOutputs,dstOutputs)) {
